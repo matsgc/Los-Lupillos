@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Calendario de Actividad de Quema – México (MODIS + VIIRS)</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+  <link rel="icon" href="img/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Colores tomados del logo de ARCAPP */
+    :root{--v1:#95ca57;--v2:#3a9f48;--v3:#008242;--cian:#00bbd7;--tinta:#0b3320;--fondo:#f4f8f3;--borde:#d3e3d3}
+    *{box-sizing:border-box}
+    body{font-family:Outfit,system-ui,sans-serif;background:var(--fondo);color:var(--tinta);margin:0}
+    .cabecera{display:flex;flex-wrap:wrap;align-items:center;gap:24px;max-width:1100px;margin:auto;padding:24px 16px 20px}
+    .logo{width:112px;height:auto}
+    .cabecera h1{font-size:clamp(1.5rem,3.4vw,2.2rem);font-weight:700;margin:0 0 6px;line-height:1.15}
+    .cabecera p{margin:0 0 4px;max-width:60ch}
+    #estado{font-size:.9rem;color:var(--v3);font-weight:600}
+    .franja{height:6px;background:linear-gradient(90deg,var(--v1) 0 25%,var(--v2) 25% 50%,var(--v3) 50% 75%,var(--cian) 75%)}
+    main{max-width:1100px;margin:auto;display:grid;gap:16px;padding:16px}
+    section{background:#fff;border:1px solid var(--borde);border-radius:16px;padding:18px}
+    h2{font-size:1.1rem;font-weight:600;margin:0 0 10px;padding-left:10px;border-left:4px solid var(--cian);color:var(--v3)}
+    .fila{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+    label{font-size:.78rem;font-weight:600;display:flex;flex-direction:column;gap:3px}
+    input,select{font-family:inherit;padding:7px;border:1px solid var(--borde);border-radius:8px;background:#fff}
+    button{font-family:inherit;padding:9px 16px;border:0;border-radius:999px;background:var(--v3);color:#fff;font-weight:600;cursor:pointer}
+    button.sec{background:var(--cian);color:var(--tinta)}
+    button:hover{filter:brightness(.93)}
+    :focus-visible{outline:3px solid var(--cian);outline-offset:2px}
+    .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:18px}
+    .kpi{border-left:4px solid var(--v1);padding-left:12px}
+    .kpi b{display:block;font-size:1.6rem;color:var(--v3);font-weight:700} .kpi span{font-size:.8rem;color:#4b6355}
+    .cal{display:grid;gap:3px;align-items:center;margin-bottom:3px;font-size:.75rem}
+    .lbl{color:#4b6355;font-weight:600;font-size:.75rem}
+    .celda{border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:600;height:42px}
+    .celda.s{height:20px;border-radius:3px}
+    .record{outline:3px solid var(--tinta);outline-offset:-2px}
+    .leyenda-fila{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:.78rem;color:#4b6355;margin-top:10px}
+    .leyenda{height:12px;width:220px;border-radius:6px} .gris{margin-left:auto}
+    #mapa{height:380px;border-radius:12px;border:1px solid var(--borde)}
+    footer{max-width:1100px;margin:auto;padding:8px 16px 28px;display:flex;align-items:center;gap:12px;font-size:.8rem;color:#4b6355}
+    footer img{width:40px;height:auto}
+  </style>
+</head>
+<body>
+<header class="cabecera">
+  <img class="logo" src="img/logo.png" alt="ARCAPP, desde 2026">
+  <div>
+    <h1>Calendario de actividad de quema</h1>
+    <p>Mira cuándo y dónde hay más incendios en México, con los satélites MODIS y VIIRS combinados.</p>
+    <p id="estado">Paso 1: carga uno o varios CSV de NASA FIRMS (MODIS y/o VIIRS, de cualquier año).</p>
+  </div>
+</header>
+<div class="franja"></div>
+<main>
+
+  <!-- BLOQUE 2: CARGA DE ARCHIVOS (datos.js) -->
+  <section>
+    <h2>1. Cargar datos</h2>
+    <input type="file" id="archivos" accept=".csv" multiple>
+    <p id="lista-archivos" style="font-size:.8rem"></p>
+  </section>
+
+  <!-- BLOQUE 3: FILTROS Y MAPA (filtros.js + mapa.js) -->
+  <section>
+    <h2>2. Elegir región: pulsa «Elegir región en el mapa» y arrastra un rectángulo sobre la zona que quieres analizar</h2>
+    <div class="fila">
+      <!-- Las coordenadas se guardan aquí, ocultas: se llenan solas al dibujar la región en el mapa -->
+      <input type="hidden" id="lat_min"><input type="hidden" id="lat_max">
+      <input type="hidden" id="lon_min"><input type="hidden" id="lon_max">
+      <label>Inicio <input type="date" id="f_ini"></label>
+      <label>Fin <input type="date" id="f_fin"></label>
+      <label><span><input type="checkbox" id="solo_veg" checked> Solo incendios de vegetación</span></label>
+      <button id="btn-dibujar">✏️ Elegir región en el mapa</button>
+      <button class="sec" id="btn-mexico">Todo México</button>
+      <button class="sec" id="btn-csv">⬇ Descargar CSV</button>
+    </div>
+    <p id="region_txt" style="font-size:.85rem;margin:8px 0 0">📍 Región: todo México. Todo lo de abajo se calcula solo con la región elegida.</p>
+    <div id="mapa" style="margin-top:10px"></div>
+  </section>
+
+  <!-- BLOQUE 4: INDICADORES (graficos.js) -->
+  <section class="kpis" id="kpis"></section>
+
+  <!-- BLOQUE 5: CALENDARIO AÑO x MES -->
+  <section>
+    <div class="fila">
+      <h2 style="flex:1">3. Calendario de actividad: ¿cuándo hay más fuego?</h2>
+      <label>Vista
+        <select id="vista"><option value="mes">Mensual</option><option value="semana">Semanal (52 semanas)</option></select>
+      </label>
+      <label>Paleta
+        <select id="paleta"><option value="fuego">Fuego</option><option value="dalt">Daltónico (Cividis)</option></select>
+      </label>
+    </div>
+    <p style="font-size:.85rem;margin:0 0 8px">Cada cuadro es un mes (o una semana). Mientras más oscuro, más focos de calor. Pasa el cursor sobre un cuadro para ver el número exacto.</p>
+    <div id="g_calendario"></div>
+  </section>
+
+  <!-- BLOQUE 6: COMPARAR DOS AÑOS -->
+  <section>
+    <div class="fila">
+      <h2 style="flex:1">4. Comparar dos años, mes a mes</h2>
+      <label>Año A <select id="anio_a"></select></label>
+      <label>Año B <select id="anio_b"></select></label>
+    </div>
+    <div id="g_comparacion"></div>
+  </section>
+
+  <!-- BLOQUE 7: PRUEBA DE LA ARMONIZACIÓN -->
+  <section>
+    <h2>5. Los dos satélites, juntos</h2>
+    <p style="font-size:.85rem;margin:0 0 8px">MODIS y VIIRS cuentan distinto (VIIRS ve más detalle y reporta más puntos). Las líneas punteadas son lo que reporta cada satélite; la verde es la serie combinada que usa esta página, sin contar dos veces el mismo fuego.</p>
+    <div id="g_armonizacion"></div>
+  </section>
+
+  <!-- BLOQUE 8: ESTIMACIÓN PARA EL PRÓXIMO AÑO -->
+  <section>
+    <h2>6. ¿Qué esperar el próximo año? (según el historial cargado)</h2>
+    <div id="g_perfil"></div>
+    <p id="resumen_perfil" style="font-size:.85rem"></p>
+  </section>
+
+</main>
+<footer><img src="img/logo.png" alt=""><span>ARCAPP · desde 2026 · Datos de incendios activos: NASA FIRMS (MODIS y VIIRS)</span></footer>
+
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script>
+  // Aviso si falló alguna librería externa (sin internet o CDN bloqueado)
+  if (typeof L === 'undefined' || typeof Plotly === 'undefined' || typeof Papa === 'undefined') {
+    document.getElementById('estado').textContent = '⚠️ No cargaron las librerías (Leaflet/Plotly/PapaParse). Revisa tu internet o abre F12 > Consola.';
+  }
+</script>
+<!-- El orden importa: cada archivo usa lo del anterior -->
+<script src="js/config.js"></script>
+<script src="js/datos.js"></script>
+<script src="js/filtros.js"></script>
+<script src="js/mapa.js"></script>
+<script src="js/graficos.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

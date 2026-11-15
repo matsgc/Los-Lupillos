@@ -1,0 +1,20 @@
+# Ejecuta la alerta todos los días a las 14:00 UTC (8:00 am hora de CDMX en horario estándar)
+name: Alerta diaria de incendios
+on:
+  schedule:
+    - cron: "0 14 * * *"
+  workflow_dispatch:        # permite correrla a mano desde la pestaña Actions
+jobs:
+  alerta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python alerta/alerta_correo.py
+        env:
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+          CORREO_DE: ${{ secrets.CORREO_DE }}
+          CORREO_CLAVE: ${{ secrets.CORREO_CLAVE }}
+          CORREO_PARA: ${{ secrets.CORREO_PARA }}
+          REGION: "-90.5,19.5,-87.0,21.7"
+          UMBRAL: "20"
+          DIAS: "2"
