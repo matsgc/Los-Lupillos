@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Monitor Histórico de Focos de Calor en México (MODIS + VIIRS)</title>
+
+  <!-- Tailwind CSS y Plotly (usados por Dev 4) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
+  <!-- Leaflet CSS (usado por Dev 3) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+
+  <style>
+    /* Evita que Tailwind rompa las imágenes internas del mapa Leaflet */
+    .leaflet-container img { max-width: none !important; }
+    #map { height: 430px; width: 100%; z-index: 1; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 p-4 md:p-6">
+
+  <div class="max-w-6xl mx-auto space-y-6">
+
+    <!-- CABECERA UNIFICADA -->
+    <header class="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+      <div>
+        <h1 class="text-xl font-bold text-slate-900">Monitor Histórico de Actividad de Quema en México</h1>
+        <p class="text-sm text-slate-500">Armonización satelital MODIS (1 km) + VIIRS (375 m)</p>
+      </div>
+      <button onclick="alternarPaleta()" id="btn-paleta"
+        class="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-700 transition cursor-pointer">
+        Cambiar a Modo Daltónico (Cividis)
+      </button>
+    </header>
+
+    <!-- SECCIÓN DEV 3: SELECTOR ESPACIAL (MAPA DE MÉXICO) Y FECHAS -->
+    <section class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+      <!-- Zonas críticas reales (Top 2025) -->
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="activarDibujo()"
+          class="px-3 py-2 text-xs font-semibold rounded-lg bg-sky-600 text-white hover:bg-sky-700 transition cursor-pointer">
+          ✏️ Dibujar área en mapa
+        </button>
+        <span class="text-xs font-semibold text-slate-500 ml-1">Zonas críticas (Top 2025):</span>
+        <button onclick="seleccionarZona(15.50, 20.00, -94.50, -89.00)"
+          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 text-white hover:bg-slate-800 transition cursor-pointer">
+          1. Sureste (23.3%)
+        </button>
+        <button onclick="seleccionarZona(17.00, 21.50, -105.50, -99.50)"
+          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 text-white hover:bg-slate-800 transition cursor-pointer">
+          2. Occidente (21.7%)
+        </button>
+        <button onclick="seleccionarZona(24.00, 30.50, -110.50, -105.50)"
+          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 text-white hover:bg-slate-800 transition cursor-pointer">
+          3. Noroeste (16.8%)
+        </button>
+        <button onclick="seleccionarZona(18.50, 21.60, -90.50, -86.80)"
+          class="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-700 text-white hover:bg-slate-800 transition cursor-pointer">
+          4. Yucatán (10.3%)
+        </button>
+      </div>
+
+      <!-- Inputs de coordenadas + Fechas + Botones de acción -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+        <label class="text-xs font-semibold text-slate-600 flex flex-col gap-1">
+          Lat Mín
+          <input type="number" step="0.01" id="lat_min" value="15.50" class="px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm">
+        </label>
+        <label class="text-xs font-semibold text-slate-600 flex flex-col gap-1">
+          Lat Máx
+          <input type="number" step="0.01" id="lat_max" value="20.00" class="px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm">
+        </label>
+        <label class="text-xs font-semibold text-slate-600 flex flex-col gap-1">
+          Lon Mín
+          <input type="number" step="0.01" id="lon_min" value="-94.50" class="px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm">
+        </label>
+        <label class="text-xs font-semibold text-slate-600 flex flex-col gap-1">
+          Lon Máx
+          <input type="number" step="0.01" id="lon_max" value="-89.00" class="px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm">
+        </label>
+        <label class="text-xs font-semibold text-slate-600 flex flex-col gap-1">
+          Inicio
+          <input type="date" id="fecha_inicio" value="2025-03-01" class="px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm">
+        </label>
+        <label class="text-xs font-semibold text-slate-600 flex flex-col gap-1">
+          Fin
+          <input type="date" id="fecha_fin" value="2025-05-31" class="px-2.5 py-1.5 border border-slate-300 rounded-lg text-sm">
+        </label>
+      </div>
+
+      <div class="flex flex-wrap gap-3 pt-1">
+        <button onclick="consultarIncendios()" id="btn-generar"
+          class="px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 transition cursor-pointer">
+          🔥 Generar Calendario
+        </button>
+        <button onclick="descargarCSV()"
+          class="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition cursor-pointer">
+          ⬇️ Descargar CSV
+        </button>
+        <span id="mensaje-estado" class="text-xs text-slate-500 self-center"></span>
+      </div>
+
+      <!-- Contenedor del Mapa -->
+      <div id="map" class="rounded-xl border border-slate-300"></div>
+    </section>
+
+    <!-- SECCIÓN DEV 4: TARJETAS KPI -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+        <p class="text-xs font-medium text-slate-500 uppercase">Total Focos Armonizados</p>
+        <p class="text-2xl font-bold text-slate-900 mt-1" id="kpi-total">--</p>
+        <p class="text-xs text-slate-400 mt-1">Serie unificada MODIS + VIIRS</p>
+      </div>
+      <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+        <p class="text-xs font-medium text-slate-500 uppercase">Día Récord Histórico</p>
+        <p class="text-2xl font-bold text-red-600 mt-1" id="kpi-record-fecha">--</p>
+        <p class="text-xs text-slate-400 mt-1" id="kpi-record-valor">Selecciona una región para calcular</p>
+      </div>
+      <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+        <p class="text-xs font-medium text-slate-500 uppercase" id="kpi-anomalia-titulo">Anomalía vs. Mediana</p>
+        <p class="text-2xl font-bold text-amber-600 mt-1" id="kpi-anomalia-valor">--</p>
+        <p class="text-xs text-slate-400 mt-1">Respecto al comportamiento histórico</p>
+      </div>
+    </section>
+
+    <!-- SECCIÓN DEV 4: HEATMAP CALENDARIO (FUEGO Y DALTÓNICO) -->
+    <section class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+      <div id="hm-fuego">
+        <div class="flex items-center justify-center h-64 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-500 text-sm p-6 text-center">
+          Presiona "🔥 Generar Calendario" para cargar el mapa de calor histórico.
+        </div>
+      </div>
+      <div id="hm-dalt" class="hidden"></div>
+    </section>
+
+    <!-- SECCIÓN DEV 4: GRÁFICA COMPARATIVA CRUDO VS ARMONIZADO -->
+    <section class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+      <div id="grafica-comparativa">
+        <div class="flex items-center justify-center h-64 rounded-xl border border-dashed border-slate-300 bg-slate-50 text-slate-500 text-sm p-6 text-center">
+          Aquí aparecerá la comparación entre conteo crudo y armonizado.
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Scripts de Leaflet -->
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+
+  <script>
+    // URL del Backend Python (Dev 2)
+    const API_URL = "http://localhost:8000";
+
+    // ==========================================
+    // 1. LÓGICA DEL MAPA DE MÉXICO (DEV 3)
+    // ==========================================
+    const limitesMexico = [[13.5, -119.5], [33.5, -85.5]];
+    const map = L.map('map', {
+      maxBounds: limitesMexico,
+      maxBoundsViscosity: 1.0,
+      minZoom: 5
+    }).setView([23.6345, -102.5528], 5);
+
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Tiles &copy; Esri'
+    }).addTo(map);
+
+    setTimeout(() => map.invalidateSize(), 250);
+
+    const capaDibujo = new L.FeatureGroup();
+    map.addLayer(capaDibujo);
+
+    const controlDibujo = new L.Control.Draw({
+      draw: {
+        polygon: false, polyline: false, circle: false, marker: false, circlemarker: false,
+        rectangle: { shapeOptions: { color: '#dc2626', weight: 2, fillOpacity: 0.2 } }
+      },
+      edit: { featureGroup: capaDibujo, remove: false }
+    });
+    map.addControl(controlDibujo);
+
+    function activarDibujo() {
+      new L.Draw.Rectangle(map, controlDibujo.options.draw.rectangle).enable();
+    }
+
+    map.on(L.Draw.Event.CREATED, function (e) {
+      capaDibujo.clearLayers();
+      capaDibujo.addLayer(e.layer);
+      const b = e.layer.getBounds();
+      actualizarInputs(b.getSouth(), b.getNorth(), b.getWest(), b.getEast());
+    });
+
+    function seleccionarZona(latMin, latMax, lonMin, lonMax) {
+      dibujarRectangulo(latMin, latMax, lonMin, lonMax);
+      actualizarInputs(latMin, latMax, lonMin, lonMax);
+    }
+
+    function dibujarRectangulo(latMin, latMax, lonMin, lonMax) {
+      capaDibujo.clearLayers();
+      const limites = [[latMin, lonMin], [latMax, lonMax]];
+      const rect = L.rectangle(limites, { color: '#dc2626', weight: 2, fillOpacity: 0.2 });
+      capaDibujo.addLayer(rect);
+      map.fitBounds(limites);
+    }
+
+    function actualizarInputs(latMin, latMax, lonMin, lonMax) {
+      document.getElementById('lat_min').value = latMin.toFixed(4);
+      document.getElementById('lat_max').value = latMax.toFixed(4);
+      document.getElementById('lon_min').value = lonMin.toFixed(4);
+      document.getElementById('lon_max').value = lonMax.toFixed(4);
+    }
+
+    dibujarRectangulo(15.50, 20.00, -94.50, -89.00);
+
+    function obtenerFiltros() {
+      return {
+        lat_min: parseFloat(document.getElementById('lat_min').value),
+        lat_max: parseFloat(document.getElementById('lat_max').value),
+        lon_min: parseFloat(document.getElementById('lon_min').value),
+        lon_max: parseFloat(document.getElementById('lon_max').value),
+        fecha_inicio: document.getElementById('fecha_inicio').value,
+        fecha_fin: document.getElementById('fecha_fin').value
+      };
+    }
+
+    // ==========================================
+    // 2. CONEXIÓN CON GRÁFICAS DE DEV 4
+    // ==========================================
+    // Función clave: los navegadores no ejecutan <script> si se insertan solo con innerHTML.
+    // Esta función fuerza a que Plotly dibuje la gráfica al recibir el HTML de Python.
+    function insertarHTMLConScripts(contenedorId, htmlString) {
+      const contenedor = document.getElementById(contenedorId);
+      contenedor.innerHTML = htmlString;
+      const scripts = contenedor.querySelectorAll("script");
+      scripts.forEach((oldScript) => {
+        const newScript = document.createElement("script");
+        newScript.textContent = oldScript.textContent;
+        document.body.appendChild(newScript);
+        document.body.removeChild(newScript);
+      });
+    }
+
+    async function consultarIncendios() {
+      const filtros = obtenerFiltros();
+      dibujarRectangulo(filtros.lat_min, filtros.lat_max, filtros.lon_min, filtros.lon_max);
+
+      const estado = document.getElementById('mensaje-estado');
+      estado.textContent = "⏳ Procesando datos satelitales...";
+
+      try {
+        const params = new URLSearchParams(filtros);
+        const resp = await fetch(`${API_URL}/api/dashboard?${params}`);
+        if (!resp.ok) throw new Error("Error en el servidor Python");
+
+        const data = await resp.json();
+
+        // 1. Llenar tarjetas KPI de Dev 4
+        document.getElementById('kpi-total').textContent = Number(data.kpis.total_armonizado).toLocaleString('es-MX');
+        document.getElementById('kpi-record-fecha').textContent = data.kpis.record_fecha;
+        document.getElementById('kpi-record-valor').textContent = `${data.kpis.record_valor} focos en un solo día`;
+        document.getElementById('kpi-anomalia-titulo').textContent = `Anomalía (${data.kpis.ultimo_anio}) vs. Mediana`;
+        const signo = data.kpis.anomalia_ultimo_anio_pct > 0 ? "+" : "";
+        document.getElementById('kpi-anomalia-valor').textContent = `${signo}${data.kpis.anomalia_ultimo_anio_pct}%`;
+
+        // 2. Inyectar las gráficas HTML generadas por Dev 4
+        insertarHTMLConScripts('hm-fuego', data.html_hm_fuego);
+        insertarHTMLConScripts('hm-dalt', data.html_hm_dalt);
+        insertarHTMLConScripts('grafica-comparativa', data.html_cp);
+
+        estado.textContent = "✅ Calendario actualizado.";
+      } catch (err) {
+        estado.textContent = "⚠️ Aún no está encendido el servidor Python (Dev 2) en " + API_URL;
+        console.error(err);
+      }
+    }
+
+    function descargarCSV() {
+      const params = new URLSearchParams(obtenerFiltros());
+      window.open(`${API_URL}/api/descargar-csv?${params}`, "_blank");
+    }
+
+    // Botón de accesibilidad (Modo Daltónico de Dev 4)
+    let daltActivo = false;
+    function alternarPaleta() {
+      daltActivo = !daltActivo;
+      document.getElementById('hm-fuego').classList.toggle('hidden', daltActivo);
+      document.getElementById('hm-dalt').classList.toggle('hidden', !daltActivo);
+      document.getElementById('btn-paleta').textContent = daltActivo
+        ? 'Cambiar a Modo Estándar (Fuego)'
+        : 'Cambiar a Modo Daltónico (Cividis)';
+      window.dispatchEvent(new Event('resize'));
+    }
+  </script>
+</body>
+</html>
