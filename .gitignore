@@ -6,3 +6,6 @@ test_*.html
 dev_server.py
 preview_rol4.html
 venv/
+
+.git
+data/
